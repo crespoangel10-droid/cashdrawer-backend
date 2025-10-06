@@ -22,13 +22,13 @@ app.post("/verify", async (req, res) => {
 
   const emailLower = email.toLowerCase();
 
-  // Acceso directo por lista blanca
+  // Acceso directo
   if (allowedEmails.includes(emailLower)) {
     const token = jwt.sign({ email }, SECRET_KEY, { expiresIn: "30d" });
     return res.json({ access: true, token });
   }
 
-  // Verificación con Lemon Squeezy
+  // Verificación Lemon
   try {
     const response = await fetch("https://api.lemonsqueezy.com/v1/licenses", {
       headers: {

@@ -1,34 +1,23 @@
 import express from "express";
-import fetch from "node-fetch";
 import cors from "cors";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-const API_KEY = process.env.LEMON_API_KEY; // protegida en Render
+// ✅ Ruta principal visible
+app.get("/", (req, res) => {
+  res.send("✅ Servidor activo Cash Drawer Email Access");
+});
 
-app.post("/verify", async (req, res) => {
-  const { licenseKey } = req.body;
-  try {
-    const response = await fetch("https://api.lemonsqueezy.com/v1/licenses/validate", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${API_KEY}`,
-        "Content-Type": "application/json",
-        "Accept": "application/json"
-      },
-      body: JSON.stringify({ license_key: licenseKey })
-    });
-    const data = await response.json();
-    if (data.valid) {
-      res.json({ status: "active" });
-    } else {
-      res.json({ status: "inactive" });
-    }
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ status: "error", message: "API Error" });
+// ✅ Endpoint de verificación por email
+app.post("/verify", (req, res) => {
+  const { email } = req.body;
+  const allowed = ["angel@test.com", "demo@cashdrawer.com"]; // <-- emails gratis que tú eliges
+  if (allowed.includes(email.toLowerCase())) {
+    res.json({ access: true });
+  } else {
+    res.json({ access: false });
   }
 });
 

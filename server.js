@@ -1,6 +1,3 @@
-// =============================================================
-// 🚀 Cash Drawer Backend – Versión FINAL PRO (Render Ready)
-// =============================================================
 
 import express from "express";
 import cors from "cors";
@@ -89,3 +86,4 @@ const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`🚀 Servidor Cash Drawer PRO ejecutándose en puerto ${PORT}`);
 });
+

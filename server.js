@@ -1,59 +1,52 @@
-// ✅ Cash Drawer App – Backend Oficial para Validar Accesos (by ChatGPT x Angel 2025)
-import express from "express";
-import fetch from "node-fetch";
-import cors from "cors";
-
+// server.js
+const express = require('express');
+const fetch = require('node-fetch');
+const cors = require('cors');
 const app = express();
+
+app.use(express.json());
 app.use(cors());
 
-// --- Claves y datos de tu cuenta ---
-const GUMROAD_API_KEY = process.env.GUMROAD_API_KEY || "QRH7xxxxxxxxxxxxxxxxxxxxxxxx";
-const PRODUCT_ID = process.env.PRODUCT_ID || "opaoug";
+// === VARIABLES DE ENTORNO ===
+const GUMROAD_API_KEY = process.env.GUMROAD_API_KEY;
+const GUMROAD_PRODUCT_ID = process.env.GUMROAD_PRODUCT_ID;
 
-// --- Endpoint principal para verificar acceso ---
-app.get("/verify", async (req, res) => {
-  const email = (req.query.email || "").toLowerCase().trim();
-  if (!email) return res.json({ access: false, reason: "no_email_provided" });
-
+// === VALIDACIÓN DEL EMAIL ===
+app.post('/validate', async (req, res) => {
   try {
-    // 🔎 Consultar la API oficial de Gumroad para listar ventas del producto
-    const response = await fetch(
-      `https://api.gumroad.com/v2/sales?product_id=${PRODUCT_ID}`,
-      {
-        headers: { Authorization: `Bearer ${GUMROAD_API_KEY}` },
-      }
-    );
+    const email = (req.body.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).json({ access: false, error: 'missing_email' });
+
+    const response = await fetch(`https://api.gumroad.com/v2/sales?product_id=${GUMROAD_PRODUCT_ID}`, {
+      headers: { Authorization: `Bearer ${GUMROAD_API_KEY}` }
+    });
+
+    if (!response.ok) {
+      return res.status(response.status).json({ access: false, error: 'gumroad_api_error' });
+    }
 
     const data = await response.json();
+    const sales = data.sales || [];
 
-    // ⚙️ Buscar coincidencia del correo en ventas válidas (no reembolsadas)
-    const match = data.sales?.find(
-      (s) =>
-        s.email?.toLowerCase() === email &&
-        s.refunded === false &&
-        (s.license_key_valid || true)
-    );
+    // Busca si el email aparece entre los compradores
+    const match = sales.find(sale => sale.email && sale.email.toLowerCase() === email);
 
     if (match) {
-      console.log(`✅ Acceso autorizado: ${email}`);
-      res.json({ access: true });
+      return res.json({ access: true, message: 'Access granted ✅' });
     } else {
-      console.log(`🚫 Sin acceso: ${email}`);
-      res.json({ access: false });
+      return res.json({ access: false, message: 'Access denied ❌' });
     }
   } catch (err) {
-    console.error("❌ Error verificando Gumroad:", err);
-    res.json({ access: false, error: "server_error" });
+    console.error('Error en validación:', err);
+    res.status(500).json({ access: false, error: 'server_error' });
   }
 });
 
-// --- Endpoint de prueba rápida ---
-app.get("/", (req, res) => {
-  res.send("✅ Cash Drawer Backend está en línea y funcionando.");
+// === HEALTH CHECK ===
+app.get('/', (req, res) => {
+  res.send('✅ CashDrawer backend funcionando correctamente');
 });
 
-// --- Puerto Render ---
+// === PUERTO ===
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () =>
-  console.log(`🚀 Cash Drawer Backend escuchando en puerto ${PORT}`)
-);
+app.listen(PORT, () => console.log(`Servidor en puerto ${PORT}`));

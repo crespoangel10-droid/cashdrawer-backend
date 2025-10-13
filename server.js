@@ -1,94 +1,74 @@
 import express from "express";
-import bodyParser from "body-parser";
-import fs from "fs";
 import cors from "cors";
+import fetch from "node-fetch";
+import bodyParser from "body-parser";
 
 const app = express();
-app.use(bodyParser.json());
 app.use(cors());
+app.use(bodyParser.json());
 
-const FILE_PATH = "./users.json";
+// === CONFIGURACIÓN ===
+const GUMROAD_PRODUCT_ID = "opaoug";  // 👈 Tu ID de producto en Gumroad
+const GUMROAD_ACCESS_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQiOiI5NGQ1OWNlZi1kYmI4LTRlYTUtYjE3OC1kMjU0MGZjZDY5MTkiLCJqdGkiOiJlNzE5Y2E0MTg4YTQ5ZjlkYTRiN2FlODI0YjBiMWMwMmYyZmFjZTc0MmM5MGE5MzhmNTNkYjk1Y2FlZjE2NjQ3ZWYzYTBkNTVjNTE0MmY0NSIsImlhdCI6MTc1OTcyMjIwMy42NTQwMDQsIm5iZiI6MTc1OTcyMjIwMy42NTQwMDYsImV4cCI6MjA3NTI1NTAwMy42Mzc4NDUsInN1YiI6IjU2Mzk4NzUiLCJzY29wZXMiOltdfQ.aHj9AqxvxHRD7N106LXWyYv38Dm5CyErkeV4y7u9bkjG9cI40vSvMEevwMvBfHH-SAz2EOwWOfQu85ZiSH6NsmDRweiO6UJaDh5eTo8dCuu-3-tX8G28AQ7Z8Brp0bO42PgwEmGuGw8U1gknPxgP3qy8DoeELg-tKcnaqNb19ZHoGq4Oe-AaAb88YgEcQK6YzCd7-7CQftW6dlAluuHnE36LjqLju2c9aez_XXZXhRCtXqODlq0k7mHGvwDj_wfHUVzYamx6TaMpVf68Ygi_6M_ruHUtFoAWilSjGpp5oI9N1WB-EV5v0ZfWeVmtL_1fXNPHIdEMlo4t2te6xy7FqYWRbJsZ3YPxBvAU5iSQ67oWVXXq624WKJm0A1sbtuXsSdX6mX8kweYPXXXEJwbVFndSyEFbTY0D1hESWeVZA9DWB1_85EhvpvT4HyScv9gF2-Quf2e13Sa7LmwtM0D8nOzBY0qv4CuzqQTvPTD3rZh7DHcvwXRBFHajEhemfHLZGdZu_yTq8IszUOvoQcWLOS2jReX9JA7u92wu3SJWHTfJcldwem0LUdOzO4XTHzaJtD6dbyQ7GKr8RnivLkpA6hy2h3RgCjeQ9GUDBMsJfjoNQdgvGohZqDVTOzsNPg70Tf9WDYsBFtjmyjvWilNUPI0_KXMheIZy-Ym4nCPFJxM"; // 👈 Pega tu API Key aquí
+const ALLOWED_EMAILS = [
+  "crespo.angel10@gmail.com",
+  "luigie7.lc@gmail.com"
+];
 
-// ✅ Correos con acceso permanente
-const ADMIN_EMAILS = ["crespo.angel10@gmail.com", "luigie7.lc@gmail.com"];
-
-// === Helpers ===
-const loadUsers = () => (fs.existsSync(FILE_PATH) ? JSON.parse(fs.readFileSync(FILE_PATH)) : []);
-const saveUsers = (data) => fs.writeFileSync(FILE_PATH, JSON.stringify(data, null, 2));
-
-// === Webhook Gumroad ===
-app.post("/webhook", (req, res) => {
-  const event = req.body;
-  const email = (event.email || event.purchaser_email || "").toLowerCase();
-  const action = event.action || "sale";
-  const isTrial = event.is_free_trial === true;
-
-  if (!email) return res.status(400).json({ error: "Missing email" });
-
-  let users = loadUsers();
-  const expires = new Date();
-  expires.setDate(expires.getDate() + (isTrial ? 3 : 30)); // trial = 3 días, pago = 30 días
-
-  let user = users.find((u) => u.email === email);
-
-  if (action === "sale" || action === "renewal" || isTrial) {
-    if (user) {
-      user.active = true;
-      user.plan = isTrial ? "trial" : "paid";
-      user.expires = expires.toISOString();
-    } else {
-      users.push({
-        email,
-        active: true,
-        plan: isTrial ? "trial" : "paid",
-        expires: expires.toISOString(),
-      });
-    }
-  }
-
-  saveUsers(users);
-  res.json({ success: true });
+// === TEST PRINCIPAL ===
+app.get("/", (req, res) => {
+  res.send("✅ CashDrawer backend funcionando correctamente 🚀");
 });
 
-// === Verificar acceso ===
-app.get("/verify/:email", (req, res) => {
-  const email = req.params.email.toLowerCase();
+// === ENDPOINT DE VERIFICACIÓN ===
+app.get("/verify", async (req, res) => {
+  const email = req.query.email?.toLowerCase();
+  console.log("🔎 Verificando email:", email);
 
-  // 🔐 Admins siempre tienen acceso
-  if (ADMIN_EMAILS.includes(email)) {
-    return res.json({ access: true, plan: "admin" });
+  if (!email)
+    return res.json({ access: false, error: "Email requerido" });
+
+  // 1️⃣ Si está en lista blanca (tú o Luigi)
+  if (ALLOWED_EMAILS.includes(email)) {
+    console.log("✅ Acceso permitido manualmente:", email);
+    return res.json({ access: true });
   }
 
-  const users = loadUsers();
-  const user = users.find((u) => u.email === email);
+  // 2️⃣ Si no, consulta Gumroad
+  try {
+    const response = await fetch(
+      `https://api.gumroad.com/v2/sales?product_id=${GUMROAD_PRODUCT_ID}`,
+      {
+        headers: {
+          Authorization: `Bearer ${GUMROAD_ACCESS_TOKEN}`
+        }
+      }
+    );
 
-  if (!user) return res.json({ access: false });
+    const data = await response.json();
+    if (!data.success) {
+      console.log("❌ Error al conectar con Gumroad:", data.message);
+      return res.json({ access: false });
+    }
 
-  const now = new Date();
-  const exp = new Date(user.expires);
+    // Buscar si el email aparece entre los compradores
+    const user = data.sales.find(sale => sale.email.toLowerCase() === email);
 
-  if (exp < now) {
-    user.active = false;
-    saveUsers(users);
+    if (user) {
+      console.log("✅ Acceso permitido por Gumroad:", email);
+      return res.json({ access: true });
+    }
+
+    console.log("🚫 Acceso denegado (no encontrado en Gumroad):", email);
+    return res.json({ access: false });
+  } catch (err) {
+    console.error("⚠️ Error verificando en Gumroad:", err);
     return res.json({ access: false });
   }
-
-  res.json({ access: user.active, plan: user.plan });
 });
 
-// === Redirección a Gumroad si no paga ===
-app.get("/check/:email", (req, res) => {
-  const email = req.params.email.toLowerCase();
-  const users = loadUsers();
-  const user = users.find((u) => u.email === email);
-
-  if (!user || !user.active) {
-    return res.redirect("https://crespoangel.gumroad.com/l/opaoug");
-  }
-
-  res.send("✅ Access granted to Cash Drawer Calculator + IVU");
-});
-
-// === Servidor Render ===
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`✅ CashDrawer backend running on port ${PORT}`));
+// === PUERTO ===
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () =>
+  console.log(`✅ CashDrawer backend corriendo en puerto ${PORT}`)
+);

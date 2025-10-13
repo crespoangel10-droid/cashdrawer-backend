@@ -1,62 +1,94 @@
 import express from "express";
+import bodyParser from "body-parser";
+import fs from "fs";
 import cors from "cors";
-import fetch from "node-fetch";
-import jwt from "jsonwebtoken";
 
 const app = express();
+app.use(bodyParser.json());
 app.use(cors());
-app.use(express.json());
 
-const SECRET_KEY = "CASHDRAWER_SUPER_SECRET_KEY";
-const LEMON_API_KEY = process.env.LEMON_API_KEY;
-const PRODUCT_ID = "653636";
-const allowedEmails = ["crespo.angel10@gmail.com"];
+const FILE_PATH = "./users.json";
 
-app.get("/", (req, res) => {
-  res.send("✅ Cash Drawer Backend funcionando correctamente 🚀");
-});
+// ✅ Correos con acceso permanente
+const ADMIN_EMAILS = ["crespo.angel10@gmail.com", "luigie7.lc@gmail.com"];
 
-app.post("/verify", async (req, res) => {
-  const { email } = req.body;
-  if (!email) return res.status(400).json({ access: false, error: "Email requerido" });
+// === Helpers ===
+const loadUsers = () => (fs.existsSync(FILE_PATH) ? JSON.parse(fs.readFileSync(FILE_PATH)) : []);
+const saveUsers = (data) => fs.writeFileSync(FILE_PATH, JSON.stringify(data, null, 2));
 
-  const emailLower = email.toLowerCase();
+// === Webhook Gumroad ===
+app.post("/webhook", (req, res) => {
+  const event = req.body;
+  const email = (event.email || event.purchaser_email || "").toLowerCase();
+  const action = event.action || "sale";
+  const isTrial = event.is_free_trial === true;
 
-  // Acceso directo
-  if (allowedEmails.includes(emailLower)) {
-    const token = jwt.sign({ email }, SECRET_KEY, { expiresIn: "30d" });
-    return res.json({ access: true, token });
-  }
+  if (!email) return res.status(400).json({ error: "Missing email" });
 
-  // Verificación Lemon
-  try {
-    const response = await fetch("https://api.lemonsqueezy.com/v1/licenses", {
-      headers: {
-        Authorization: `Bearer ${LEMON_API_KEY}`,
-        Accept: "application/json",
-      },
-    });
+  let users = loadUsers();
+  const expires = new Date();
+  expires.setDate(expires.getDate() + (isTrial ? 3 : 30)); // trial = 3 días, pago = 30 días
 
-    const data = await response.json();
-    const active = data.data?.some((lic) => {
-      const attrs = lic.attributes;
-      const matchEmail = attrs.user_email.toLowerCase() === emailLower;
-      const matchProduct = attrs.product_id == PRODUCT_ID;
-      const activeStatus = ["active", "on_trial"].includes(attrs.status);
-      return matchEmail && matchProduct && activeStatus;
-    });
+  let user = users.find((u) => u.email === email);
 
-    if (active) {
-      const token = jwt.sign({ email }, SECRET_KEY, { expiresIn: "30d" });
-      return res.json({ access: true, token });
+  if (action === "sale" || action === "renewal" || isTrial) {
+    if (user) {
+      user.active = true;
+      user.plan = isTrial ? "trial" : "paid";
+      user.expires = expires.toISOString();
     } else {
-      return res.json({ access: false });
+      users.push({
+        email,
+        active: true,
+        plan: isTrial ? "trial" : "paid",
+        expires: expires.toISOString(),
+      });
     }
-  } catch (err) {
-    console.error("Error Lemon:", err);
-    return res.status(200).json({ access: false, error: "Problema con Lemon Squeezy" });
   }
+
+  saveUsers(users);
+  res.json({ success: true });
 });
 
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`🚀 Servidor activo en puerto ${PORT}`));
+// === Verificar acceso ===
+app.get("/verify/:email", (req, res) => {
+  const email = req.params.email.toLowerCase();
+
+  // 🔐 Admins siempre tienen acceso
+  if (ADMIN_EMAILS.includes(email)) {
+    return res.json({ access: true, plan: "admin" });
+  }
+
+  const users = loadUsers();
+  const user = users.find((u) => u.email === email);
+
+  if (!user) return res.json({ access: false });
+
+  const now = new Date();
+  const exp = new Date(user.expires);
+
+  if (exp < now) {
+    user.active = false;
+    saveUsers(users);
+    return res.json({ access: false });
+  }
+
+  res.json({ access: user.active, plan: user.plan });
+});
+
+// === Redirección a Gumroad si no paga ===
+app.get("/check/:email", (req, res) => {
+  const email = req.params.email.toLowerCase();
+  const users = loadUsers();
+  const user = users.find((u) => u.email === email);
+
+  if (!user || !user.active) {
+    return res.redirect("https://crespoangel.gumroad.com/l/opaoug");
+  }
+
+  res.send("✅ Access granted to Cash Drawer Calculator + IVU");
+});
+
+// === Servidor Render ===
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`✅ CashDrawer backend running on port ${PORT}`));
